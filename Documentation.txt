@@ -1,0 +1,622 @@
+PERSONAL AI ASSISTANT (ORA) — FEATURE DOCUMENTATION (V2 UPGRADE)
+=================================================================
+
+Project:     Personal AI Assistant (ORA)
+Branch:      v2
+Date:        February 17, 2026
+Author:      Waqas Kareem
+
+
+TABLE OF CONTENTS
+-----------------
+1.  Overview
+2.  Technologies Used
+3.  System Architecture
+4.  Feature 1: Reminder System
+5.  Feature 2: Task Confirmation & Voice Feedback
+6.  Feature 3: Chat Log Integration for All Tasks
+7.  Feature 4: Image Generation Lifecycle Notifications
+8.  Feature 5: TTS Pronunciation Fix
+9.  Files Modified
+10. Step-by-Step Implementation Guide
+11. Testing & Verification
+
+
+=================================================================
+1. OVERVIEW
+=================================================================
+
+The Personal AI Assistant (ORA) is a voice-driven desktop application capable of performing multiple tasks including chatbot conversations, real-time web search, image generation, and system automation — all controlled through speech commands.
+
+In this upgrade (v2), the following major functionalities were added:
+
+  #   Feature                                   Description
+  --- ----------------------------------------- ----------------------------------------------------------
+  1   Reminder System                           Set reminders via voice with natural language time parsing;
+                                                background daemon fires reminders at the scheduled time
+  2   Task Confirmation & Voice Feedback        All automation tasks now speak a confirmation to the user
+  3   Chat Log Integration                      All automation task interactions are saved to ChatLog.json
+  4   Image Generation Lifecycle Notifications  Pre-confirmation before starting + completion notification
+  5   TTS Pronunciation Fix                     "ORA" pronounced as a word (like "aura") not spelled out
+
+
+=================================================================
+
+ 1. Basic LLM Chat
+Send prompts to a local model.
+See raw input and output.
+
+ 2. System Prompts
+Define behavior with constraints.
+Control the agent precisely.
+
+ 3. Structured Output (JSON)
+Force reliable, parsable data.
+Turn text into code-ready output.
+
+ 4. Routing Logic
+Classify user intent cleanly.
+Choose specific execution paths.
+
+ 5. Tools & Capabilities
+Call external Python functions.
+Give the agent real power.
+
+ 6. The Agent Loop
+Implement Observe-Decide-Act.
+Autonomy through tight loops.
+
+ 7. Memory Management
+Persist context across sessions.
+Maintain coherent conversations.
+
+ 8. Planning
+Break goals into clear steps.
+Execute with structured intent.
+
+ 9. Atomic Actions
+Isolate tool execution safely.
+Prevent crashes from single failures.
+
+ 10. Atom of Thought
+Use dependency graphs for reasoning.
+Handle complex multi-step tasks.
+
+
+=================================================================
+
+
+=================================================================
+2. TECHNOLOGIES USED
+=================================================================
+
+Core Technologies:
+
+  Technology        Purpose                                          Details
+  ----------------  -----------------------------------------------  --------------------------
+  Python            Primary programming language                     3.10+
+  PyQt5             Graphical User Interface (GUI) framework         Desktop application frontend
+  Edge TTS          Text-to-Speech engine (Microsoft Azure voices)   en-CA-LiamNeural voice
+  Pygame            Audio playback engine for TTS output             Plays generated .mp3 files
+  Groq API          LLM inference for chatbot & reminder parsing     llama-3.3-70b-versatile
+  Cohere API        Decision-Making Model (query classification)     command-r-plus-08-2024
+  Hugging Face API  AI image generation                              Stable Diffusion models
+
+Key Python Libraries:
+
+  Library           Purpose
+  ----------------  -----------------------------------------------
+  asyncio           Asynchronous task execution for concurrent automation
+  threading         Background daemon threads (reminder checker, image completion monitor)
+  json              Persistent storage for reminders and chat logs
+  datetime          Time parsing and comparison for reminder scheduling
+  subprocess        Running image generation as a separate process
+  keyboard          System-level controls (volume, mute)
+  AppOpener         Opening and closing desktop applications
+  pywhatkit         Google search and YouTube playback
+  webbrowser        Opening web URLs
+  requests          Web scraping and HTTP requests
+  BeautifulSoup     HTML parsing
+
+
+=================================================================
+3. SYSTEM ARCHITECTURE
+=================================================================
+
+3.1 High-Level Architecture Diagram:
+
+  +---------------------------------------------------------------------+
+  |                   PERSONAL AI ASSISTANT (ORA)                        |
+  +---------------------------------------------------------------------+
+  |                                                                     |
+  |  +----------------+     +------------------+     +----------------+ |
+  |  |   Frontend     |     |     Main.py      |     |    Backend     | |
+  |  |   (PyQt5)      |<--->|  (Entry Point)   |<--->|   Modules      | |
+  |  |                |     |                  |     |                | |
+  |  |  - GUI         |     |  - Thread Mgmt   |     |  - Model.py    | |
+  |  |  - Status Bar  |     |  - MainExecution |     |  - Automation  | |
+  |  |  - Chat View   |     |  - InitialExec   |     |  - Chatbot     | |
+  |  +----------------+     +------------------+     |  - TTS         | |
+  |                                                   |  - STT         | |
+  |                                                   |  - Search      | |
+  |                                                   |  - ImageGen    | |
+  |                                                   +----------------+ |
+  |                                                                     |
+  |  +---------------------------------------------------------------+ |
+  |  |                       Data Layer                               | |
+  |  |  ChatLog.json  |  Reminders.json  |  speech.mp3  |  .env      | |
+  |  +---------------------------------------------------------------+ |
+  +---------------------------------------------------------------------+
+
+
+3.2 Thread Architecture Diagram:
+
+  +-------------------------------------------------------------+
+  |                    APPLICATION THREADS                        |
+  +-------------------------------------------------------------+
+  |                                                              |
+  |  MAIN THREAD (Thread 1)                                      |
+  |  +-> PyQt5 GUI Event Loop (SecondThread)                     |
+  |                                                              |
+  |  DAEMON THREAD (Thread 2)                                    |
+  |  +-> FirstThread()                                           |
+  |      +-> MainExecution() loop                                |
+  |          |-> SpeechRecognition (STT)                         |
+  |          |-> FirstLayerDMM (Decision Making)                 |
+  |          |-> Automation (Task Execution)                     |
+  |          |-> ChatBot / RealtimeSearch                        |
+  |          +-> TextToSpeech (TTS)                              |
+  |                                                              |
+  |  DAEMON THREAD (Thread 3) <-- NEW                            |
+  |  +-> CheckReminders() - Reminder Daemon                     |
+  |      +-> Checks every 30 seconds                            |
+  |      +-> Fires due reminders via TTS + GUI                  |
+  |                                                              |
+  |  DAEMON THREAD (Thread 4) <-- NEW (spawned per image task)   |
+  |  +-> MonitorImageGeneration()                                |
+  |      +-> Waits for subprocess completion                     |
+  |      +-> Notifies user when images are ready                |
+  |                                                              |
+  +-------------------------------------------------------------+
+
+
+=================================================================
+4. FEATURE 1: REMINDER SYSTEM
+=================================================================
+
+Description:
+Users can set reminders using natural voice commands. The system parses natural language date/time expressions using the Groq LLM, stores reminders persistently in a JSON file, and fires them at the scheduled time with voice and visual notifications.
+
+How It Works:
+
+  Step 1: User says "Remind me about my meeting at 3pm tomorrow"
+       |
+       v
+  Step 2: Decision Model (Cohere) classifies query as "reminder"
+       |
+       v
+  Step 3: SetReminder() sends text to Groq LLM for parsing
+       |
+       v
+  Step 4: Groq LLM extracts structured data:
+          - DATETIME: 2026-02-18 15:00
+          - MESSAGE: meeting
+       |
+       v
+  Step 5: Saves to Data/Reminders.json
+       |
+       v
+  Step 6: Speaks confirmation: "Ok sir, your reminder set for
+          03:00 PM on February 18, 2026. I will remind you
+          about the meeting."
+       |
+       v
+  Step 7: Saves both user query and confirmation to ChatLog.json
+
+  ... Meanwhile, the Reminder Daemon (background thread) ...
+
+  Step 8: CheckReminders() runs every 30 seconds
+       |
+       v
+  Step 9: Compares each reminder datetime with current time
+       |
+       v
+  Step 10: When time arrives:
+           - Speaks: "Sir, you have a reminder for your meeting now"
+           - Shows on GUI
+           - Saves to ChatLog.json
+           - Removes fired reminder from Reminders.json
+
+
+Reminder Data Format (Data/Reminders.json):
+
+  [
+    {
+      "datetime": "2026-02-18 15:00",
+      "message": "business meeting",
+      "original": "3:00pm tomorrow business meeting"
+    }
+  ]
+
+
+Key Functions:
+
+  Function               File            Description
+  ---------------------  --------------  ------------------------------------------------
+  SetReminder()          Automation.py   Parses time via Groq LLM, saves to JSON, confirms
+  CheckReminders()       Automation.py   Background daemon, checks every 30s, fires reminders
+  StartReminderDaemon()  Automation.py   Starts CheckReminders as a daemon thread
+
+Technologies Specific to This Feature:
+  - Groq LLM (llama-3.3-70b-versatile): Natural language datetime parsing
+  - Python datetime: Time comparison for scheduling
+  - Python threading: Daemon thread for background checking
+  - JSON: Persistent storage across application restarts
+
+
+=================================================================
+5. FEATURE 2: TASK CONFIRMATION & VOICE FEEDBACK
+=================================================================
+
+Description:
+Previously, automation tasks (open/close apps, play music, search, system commands) executed silently without any feedback. Now, every automation task speaks a natural confirmation message after completion.
+
+How It Works:
+
+  Step 1: Commands are parsed and dispatched concurrently
+          (e.g., open chrome, close notepad)
+       |
+       v
+  Step 2: All tasks execute via asyncio.gather()
+       |
+       v
+  Step 3: After all tasks complete, system builds a natural
+          confirmation message based on what was done
+       |
+       v
+  Step 4: Speaks confirmation via TextToSpeech
+       |
+       v
+  Step 5: Saves to ChatLog.json
+
+Confirmation Messages by Task Type:
+
+  Task             Example Command                    Confirmation
+  ---------------  ---------------------------------  ------------------------------------------
+  Open App         "Open Instagram"                   "Sure sir, I've opened instagram."
+  Close App        "Close Settings"                   "Sure sir, I've closed settings."
+  Play Song        "Play Let Her Go"                  "Sure sir, I've playing let her go."
+  Google Search    "Search Python on Google"          "Sure sir, I've searched for python on Google."
+  YouTube Search   "Search cats on YouTube"           "Sure sir, I've searched for cats on YouTube."
+  System Command   "Mute the volume"                  "Sure sir, I've mute."
+  Content Writing  "Write application for leave"      "Sure sir, I've written the content about
+                                                       application for leave and opened it in Notepad."
+  Multiple Tasks   "Open Chrome and close Notepad"    "Sure sir, I've opened chrome and
+                                                       closed notepad."
+
+Helper Functions Added:
+
+  Function               Purpose
+  ---------------------  -----------------------------------------------
+  SaveToChatLog()        Reads ChatLog.json, appends messages, saves back
+  SpeakConfirmation()    Shows on GUI, speaks via TTS, updates status
+
+
+=================================================================
+6. FEATURE 3: CHAT LOG INTEGRATION FOR ALL TASKS
+=================================================================
+
+Description:
+All automation task interactions are now saved to Data/ChatLog.json, maintaining a complete conversation history. Previously, only chatbot and real-time search conversations were logged.
+
+What Gets Saved:
+
+  Event                  User Entry                        Assistant Entry
+  ---------------------  --------------------------------  ----------------------------------------
+  Automation task        "open chrome"                     "Sure sir, I've opened chrome."
+  Reminder set           "Set a reminder: 3pm meeting"     "Ok sir, your reminder set for 03:00 PM..."
+  Reminder fired         (none)                            "Sir, you have a reminder for your meeting now"
+  Image gen started      "Generate image of dinosaur"      "Sure sir, I will let you know when ready."
+  Image gen complete     (none)                            "Sir, the images are ready."
+
+
+=================================================================
+7. FEATURE 4: IMAGE GENERATION LIFECYCLE NOTIFICATIONS
+=================================================================
+
+Description:
+Image generation is a long-running process (runs as a separate subprocess). The system now provides two-phase feedback:
+
+  Phase 1 (Immediate): "Sure sir, I will let you know when the images are ready."
+  Phase 2 (On completion): "Sir, the images are ready."
+
+How It Works:
+
+  User: "Generate image of a dinosaur"
+       |
+       v
+  Phase 1: Pre-Confirmation
+  - Speaks: "Sure sir, I will let you know when the images are ready."
+  - Saves to ChatLog.json
+       |
+       v
+  Start subprocess (ImageGeneration.py)
+       |
+       +---> MonitorImageGeneration thread starts
+       |     (daemon thread that waits for subprocess)
+       |
+       v
+  System continues listening for other commands
+  (user can interact while images generate)
+       |
+       ...time passes...
+       |
+       v
+  Phase 2: Completion Notification (from monitor thread)
+  - Speaks: "Sir, the images are ready."
+  - Shows on GUI
+  - Saves to ChatLog.json
+
+
+=================================================================
+8. FEATURE 5: TTS PRONUNCIATION FIX
+=================================================================
+
+Description:
+The assistant name "ORA" was being pronounced as individual letters "O-R-A" by the Edge TTS engine because it interpreted all-caps text as an acronym.
+
+Fix:
+Added one line to TextToSpeech.py that converts "ORA" to "Ora" before passing to the TTS engine:
+
+  Text = Text.replace("ORA", "Ora")
+
+Why This Works:
+  - "ORA" (all caps) -> TTS treats as acronym -> spells "O - R - A"  (Wrong)
+  - "Ora" (title case) -> TTS treats as word -> pronounces "Ora"     (Correct)
+
+
+=================================================================
+9. FILES MODIFIED
+=================================================================
+
+Summary of Changes:
+
+  File                      Change Type          Description
+  ------------------------  -------------------  ------------------------------------------
+  Backend/Automation.py     Major Modification   Added reminder system, helper functions,
+                                                 and task confirmation logic
+  Main.py                   Modification         Added reminder startup, image lifecycle
+                                                 notifications with monitoring thread
+  Backend/TextToSpeech.py   Minor Modification   Added ORA pronunciation fix
+  Data/Reminders.json       New File             Persistent storage for scheduled reminders
+  Backend/Model.py          No Changes           Already had reminder classification
+
+Lines of Code:
+
+  File                      Lines Added   Lines Modified
+  ------------------------  -----------   -------------
+  Backend/Automation.py     ~250          ~30
+  Main.py                   ~45           ~3
+  Backend/TextToSpeech.py   ~2            0
+  Data/Reminders.json       1 (new)       -
+  TOTAL                     ~298          ~33
+
+
+=================================================================
+10. STEP-BY-STEP IMPLEMENTATION GUIDE
+=================================================================
+
+Step 1: Create Persistent Storage for Reminders
+------------------------------------------------
+File: Data/Reminders.json
+Created an empty JSON array file to serve as the reminders database.
+Content: []
+
+Step 2: Add Helper Functions to Automation.py
+---------------------------------------------
+Added two reusable helper functions to eliminate code duplication:
+  a) SaveToChatLog(user_msg, assistant_msg)
+     - Reads ChatLog.json
+     - Appends user and/or assistant messages
+     - Writes back to file
+  b) SpeakConfirmation(message)
+     - Shows text on GUI via ShowTextToScreen
+     - Speaks via TextToSpeech
+     - Updates assistant status
+
+Step 3: Implement the Reminder System
+--------------------------------------
+Added three functions to Backend/Automation.py:
+
+  a) SetReminder(reminder_text):
+     - Sends the reminder text to Groq LLM with a carefully crafted prompt
+       that includes the current date/time
+     - LLM responds with structured DATETIME and MESSAGE fields
+     - Validates the datetime format using datetime.strptime
+     - Appends the reminder to Reminders.json
+     - Speaks and saves the confirmation
+
+  b) CheckReminders():
+     - Runs in an infinite loop with 30-second sleep intervals
+     - Loads reminders from JSON file
+     - Compares each reminder's datetime with datetime.now()
+     - When a reminder is due:
+       * Speaks the reminder message via TextToSpeech
+       * Shows it on the GUI
+       * Saves to ChatLog.json
+       * Removes from Reminders.json
+
+  c) StartReminderDaemon():
+     - Creates a daemon thread targeting CheckReminders
+     - Called once during application initialization
+
+Step 4: Add Reminder Handler to Command Dispatch
+-------------------------------------------------
+In TranslateAndExecute(), added a new branch to handle "reminder" commands:
+  - When a command starts with "reminder ", extracts the reminder text
+  - Dispatches SetReminder via asyncio.to_thread for thread-safe execution
+
+Step 5: Add Task Confirmation Logic
+------------------------------------
+Modified TranslateAndExecute() to:
+  a) Track all dispatched commands with their type and detail in a list
+  b) After all tasks complete via asyncio.gather(), build a natural
+     confirmation message from the tracked tasks
+  c) Speak it via await asyncio.to_thread(SpeakConfirmation, ...)
+     Note: asyncio.to_thread is required to avoid event loop conflicts
+     since TextToSpeech internally uses asyncio.run()
+  d) Save to chatlog via await asyncio.to_thread(SaveToChatLog, ...)
+
+Step 6: Register Reminder in Main.py
+-------------------------------------
+  a) Added "reminder" to the Functions list so reminder commands
+     are routed to the Automation system
+  b) Imported StartReminderDaemon from Backend.Automation
+  c) Called StartReminderDaemon() in InitialExecution() to start
+     the background checker when the app launches
+
+Step 7: Add Image Generation Lifecycle Notifications
+-----------------------------------------------------
+In Main.py, modified the image generation section to:
+  a) Speak pre-confirmation: "Sure sir, I will let you know when
+     the images are ready."
+  b) Save both user query and pre-confirmation to ChatLog.json
+  c) Start a MonitorImageGeneration daemon thread that:
+     - Calls process.wait() to block until the subprocess finishes
+     - Then speaks: "Sir, the images are ready."
+     - Shows on GUI and saves to ChatLog.json
+
+Step 8: Fix TTS Pronunciation
+------------------------------
+In Backend/TextToSpeech.py:
+  - Added Text = Text.replace("ORA", "Ora") at the start of the TTS function
+  - This makes Edge TTS treat the name as a regular word instead of an acronym
+
+
+=================================================================
+11. TESTING & VERIFICATION
+=================================================================
+
+Test Cases:
+
+  #    Scenario                 Voice Command                              Expected Result
+  ---  -----------------------  -----------------------------------------  ------------------------------------------
+  1    Set a reminder           "Remind me about my meeting at 3pm"        Speaks confirmation, saved to Reminders.json
+                                                                           and ChatLog.json
+  2    Reminder fires           (wait for scheduled time)                  Speaks reminder, shows on GUI, removed
+                                                                           from Reminders.json
+  3    Open an app              "Open Instagram"                           Opens app + speaks "Sure sir, I've
+                                                                           opened instagram."
+  4    Close an app             "Close Settings"                           Closes app + speaks confirmation
+  5    Multiple tasks           "Open Chrome and close Notepad"            Executes both + speaks combined confirmation
+  6    Play music               "Play Let Her Go"                          Plays on YouTube + speaks confirmation
+  7    Image generation         "Generate image of a dinosaur"             Speaks pre-confirmation, generates images,
+                                                                           speaks "images are ready"
+  8    System command           "Mute the volume"                          Mutes + speaks confirmation
+  9    Pronunciation            "Who are you?"                             Pronounces "Ora" as a word, not "O-R-A"
+  10   ChatLog                  (any automation task)                      Check ChatLog.json for saved entries
+
+Verification Results:
+  [PASS] All Python files compile successfully (python -m py_compile)
+  [PASS] Reminder system tested and working (set + fire)
+  [PASS] Automation confirmations spoken correctly
+  [PASS] ChatLog integration verified
+  [PASS] Image generation lifecycle notifications working
+  [PASS] TTS pronunciation fixed for "ORA"
+  [PASS] No asyncio.run() event loop conflicts (resolved via asyncio.to_thread)
+
+
+=================================================================
+TECHNICAL NOTES
+=================================================================
+
+1. asyncio.run() Event Loop Conflict (Resolved)
+------------------------------------------------
+Problem: SpeakConfirmation() calls TextToSpeech() which internally uses
+asyncio.run(). When called from within TranslateAndExecute() (an async
+function), this caused: "RuntimeError: asyncio.run() cannot be called
+from a running event loop"
+
+Solution: Wrapped SpeakConfirmation and SaveToChatLog calls with
+await asyncio.to_thread(), which runs them in a separate thread
+where no event loop is active.
+
+  Before (crashes):    SpeakConfirmation(confirmation)
+  After (works):       await asyncio.to_thread(SpeakConfirmation, confirmation)
+
+
+2. Why Groq LLM for Reminder Parsing?
+--------------------------------------
+Instead of using traditional datetime parsing libraries (like dateutil),
+we use the Groq LLM because:
+  - Handles highly informal natural language: "in 30 minutes",
+    "3pm tomorrow", "next friday at noon"
+  - Understands context: the current date/time is injected into the prompt
+  - Provides consistent structured output via a strict format prompt
+  - The temperature=0.1 setting ensures deterministic, reliable parsing
+
+--------------------------------------
+
+-> Problems facing in the Latency and their solution:
+
+Implementation Plan - Latency Optimization
+Goal
+Drastically reduce the response time of the AI Assistant (currently ~59s per query) using only free tools.
+
+Current Bottlenecks
+SpeechRecognition (34.3s): Uses Selenium + Chrome Browser to access Web Speech API. High overhead.
+TextToSpeech (18.3s): Uses edge-tts (cloud) + file I/O + pygame (init per call).
+Decision Model (5.9s): Uses Cohere API.
+Proposed Changes
+1. Optimize SpeechToText (
+Backend/SpeechToText.py
+)
+Strategy: Replace Selenium/Chrome with the 
+SpeechRecognition
+ python library using the free Google Speech API.
+
+Remove: selenium, webdriver_manager imports and setup.
+Add: speech_recognition implementation.
+Benefit: Removes browser launch overhead (~5-10s) and page load time.
+Risk: Requires PyAudio (can be tricky on Windows). Will check/install requirements.
+2. Optimize Decision Model (
+Backend/Model.py
+)
+Strategy: Switch from Cohere to Groq (Llama-3.3-70b or similar).
+
+Reason: User already has Groq configured for ChatBot (0.6s latency). Using it for classification will be much faster than Cohere.
+Changes:
+Import Groq client.
+Reuse GroqAPIKey.
+Refactor 
+FirstLayerDMM
+ to use client.chat.completions.create.
+3. Optimize TextToSpeech (
+Backend/TextToSpeech.py
+)
+Strategy: Minor optimizations to reduce overhead.
+
+Change: Move pygame.mixer.init() outside the function (global initialization) to avoid re-initializing on every speak command.
+Verification Plan
+Manual Verification: Run 
+Main.py
+ and speak commands.
+Latency Check: Observe the time taken for "Listening..." -> "Thinking..." -> "Answering...".
+
+--------------------------------------
+
+Final Refined Latency Optimization Strategy
+1. Fast Speech Recognition (Google Speech API)
+   - Replaced Selenium/Chrome with the `SpeechRecognition` library.
+   - Removed all browser-launch overhead, reducing startup lag by ~10s.
+   - Total STT latency: ~2-4 seconds.
+2. Smart Decision Making (Groq 8B Model)
+   - Switched from Llama-3.3-70B to `llama-3.1-8b-instant` for classification.
+   - 8B model is significantly faster and more token-efficient, avoiding "Rate Limit Reached" errors.
+   - Decision latency: <0.5 seconds.
+3. Clean Terminal Output
+   - Simplified and reduced log noise in `Main.py` and `Model.py` for a more professional console interface.
+
+=================================================================
+END OF DOCUMENTATION
+=================================================================

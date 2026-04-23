@@ -1,0 +1,120 @@
+#################################
+# ENV / SECRETS
+#################################
+.env
+
+*.key
+*.pem
+*.secret
+
+#################################
+# Vost Model
+#################################
+
+model/
+
+
+#################################
+# PYTHON
+#################################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+v2env/
+.venv/
+env/
+ENV/
+
+#################################
+# FASTAPI / UVICORN
+#################################
+*.log
+
+#################################
+# NODE / FRONTEND
+#################################
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+
+#################################
+# VECTOR DATABASE / RAG
+#################################
+chroma/
+chromadb/
+faiss_index/
+index/
+indexes/
+*.faiss
+*.pkl
+*.db
+
+#################################
+# MODEL CACHE
+#################################
+.cache/
+huggingface/
+hf_cache/
+torch_cache/
+transformers_cache/
+
+#################################
+# JUPYTER
+#################################
+.ipynb_checkpoints/
+
+#################################
+# IDE
+#################################
+.vscode/
+.idea/
+*.swp
+*.swo
+
+#################################
+# OS FILES
+#################################
+.DS_Store
+Thumbs.db
+desktop.ini
+
+#################################
+# TEST / TEMP
+#################################
+pytest_cache/
+coverage/
+htmlcov/
+tmp/
+temp/
+
+#################################
+# OUTPUT FILES
+#################################
+outputs/
+generated/
+uploads/
+
+#################################
+# GROQ / OPENAI CONFIGS
+#################################
+*.openai
+*.groq
+
+#################################
+# EXTRAS
+#################################
+*.sqlite
+*.sqlite3
